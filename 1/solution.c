@@ -2,6 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include "libcoro.h"
+#include <limits.h>
+#include <time.h>
+
 
 /**
  * You can compile and run this code using the commands:
@@ -15,6 +18,87 @@
  * the example. You can split your code into multiple functions, that usually
  * helps to keep the individual code blocks simple.
  */
+
+
+struct TimeHandler{
+    struct timespec
+            time_start,
+            time_end;
+    double totalTimeMs;
+};
+
+struct TimeHandler * timers;
+int currentTimeHandler = 0;
+
+struct Queue{
+    char **str;
+    int current;
+    int last_elem;
+    int max_size;
+} queue;
+
+struct Queue queue_init(int sz) {
+    struct Queue newQ;
+    newQ.current = 0;
+    newQ.last_elem = 0;
+    newQ.max_size = sz;
+    newQ.str = calloc(sz, sizeof(char *));
+
+    return newQ;
+}
+
+void queue_add(struct Queue* q, char *str) {
+    q->str[q->last_elem] = str;
+    q->last_elem++;
+}
+
+char *queue_pop(struct Queue* q) {
+    q->current++;
+    return q->str[q->current - 1];
+}
+
+struct stackEntry{
+    int start;
+    int end;
+    struct stackEntry * prev;
+};
+
+struct stackGlobal{
+    struct stackEntry * stack;
+    uint size;
+};
+
+int pushStack(struct stackGlobal *stack, int start, int end)
+{
+    struct stackEntry* newEntry = (struct stackEntry *)malloc(sizeof(struct stackEntry));
+    if(newEntry == NULL){
+        printf("pushStack ERROR: not enough  space\n");
+        return -1;
+    }
+    newEntry->start = start;
+    newEntry->end = end;
+    newEntry->prev = stack->stack;
+    ++stack->size;
+    stack->stack = newEntry;
+    return 0;
+}
+
+int popStack(struct  stackGlobal * stack, struct stackEntry * result)
+{
+    if(stack->size == 0){
+        printf("popStack ERROR: Stack is empty\n");
+        return -1;
+    }
+    *result = *(stack->stack);
+    --stack->size;
+    free(stack->stack);
+    if(stack->size == 0){
+        return 0;
+    }
+    stack->stack = result->prev;
+    return 0;
+}
+
 static void
 other_function(const char *name, int depth)
 {
@@ -25,6 +109,61 @@ other_function(const char *name, int depth)
 		other_function(name, depth + 1);
 }
 
+void swap(int *a, int *b)
+{
+    int temp = *a;
+    *a = *b;
+    *b = temp;
+}
+
+int take_partition(int whole[], int start, int end)
+{
+    int pivot = whole[end];
+    int index = start;
+
+    for (int i = start; i < end; ++i){
+        if(whole[i] <= pivot){
+            swap(whole + i, whole + index);
+            ++index;
+        }
+    }
+    swap(whole + index, whole + end);
+    return index;
+}
+
+void quickSort(int array[], int n, struct TimeHandler *timer)
+{
+    struct stackGlobal stack;
+    stack.size = 0;
+    int start = 0;
+    int end =  n - 1;
+    pushStack(&stack, start, end);
+
+    while(stack.size != 0){
+      struct stackEntry current;
+      popStack(&stack, &current);
+      start = current.start;
+      end = current.end;
+
+      int pivot = take_partition(array, start, end);
+      if(pivot - 1 > start){
+          pushStack(&stack, start, pivot - 1);
+      }
+
+      if(pivot + 1 < end){
+          pushStack(&stack, pivot + 1, end);
+      }
+
+      clock_gettime(CLOCK_MONOTONIC, &timer->time_end);
+      double timeElapsed =
+                ( (double)(timer->time_end.tv_nsec - timer->time_start.tv_nsec) / 1000000.0);
+      double totalTime =  (timer->time_end.tv_sec - timer->time_start.tv_sec) * 1000.0 + timeElapsed;
+      timer->totalTimeMs += totalTime;
+      coro_yield();
+      clock_gettime(CLOCK_MONOTONIC, &timer->time_start);
+    }
+}
+
 /**
  * Coroutine body. This code is executed by all the coroutines. Here you
  * implement your solution, sort each individual file.
@@ -32,35 +171,70 @@ other_function(const char *name, int depth)
 static int
 coroutine_func_f(void *context)
 {
-	/* IMPLEMENT SORTING OF INDIVIDUAL FILES HERE. */
+    struct coro *this = coro_this();
+    char *name = context;
+    struct TimeHandler corTimer = timers[currentTimeHandler];
+    corTimer.totalTimeMs = 0;
+    ++currentTimeHandler;
+    clock_gettime(CLOCK_MONOTONIC, &corTimer.time_start);
 
-	struct coro *this = coro_this();
-	char *name = context;
-	printf("Started coroutine %s\n", name);
-	printf("%s: switch count %lld\n", name, coro_switch_count(this));
-	printf("%s: yield\n", name);
-	coro_yield();
+    printf("Started coroutine %s\n", name);
 
-	printf("%s: switch count %lld\n", name, coro_switch_count(this));
-	printf("%s: yield\n", name);
-	coro_yield();
+    while(queue.current < queue.last_elem) {
+        char *nameFile = queue_pop(&queue);
 
-	printf("%s: switch count %lld\n", name, coro_switch_count(this));
-	other_function(name, 1);
-	printf("%s: switch count after other function %lld\n", name,
-	       coro_switch_count(this));
-	free(name);
-	/* This will be returned from coro_status(). */
-	return 0;
+
+        FILE *file = fopen(nameFile, "r");
+        int size = 4;
+        int *array = (int *) calloc(size, sizeof(int));
+        int index = 0;
+
+        while (fscanf(file, "%d", array + index) != EOF) {
+            ++index;
+            if (size == index) {
+                array = realloc(array, size * 2 * sizeof(int));
+                size *= 2;
+            }
+        }
+        quickSort(array, index, &corTimer);
+        fclose(file);
+        FILE *fileWrite = fopen(nameFile, "w");
+        for (int i = 0; i < index; ++i) {
+            fprintf(fileWrite, "%d ", array[i]);
+        }
+        fclose(fileWrite);
+        free(array);
+
+    }
+    clock_gettime(CLOCK_MONOTONIC, &corTimer.time_end);
+    double timeElapsed =
+            ( (double)(corTimer.time_end.tv_nsec - corTimer.time_start.tv_nsec) / 1000000.0);
+    double totalTime =  (corTimer.time_end.tv_sec - corTimer.time_start.tv_sec) * 1000.0 + timeElapsed;
+    printf("%s: Total execution time was %lf ms\n", name, totalTime);
+    printf("%s: switch count %lld\n", name, coro_switch_count(this));
+    free(name);
+    return 0;
 }
 
 int
 main(int argc, char **argv)
 {
+    int corutineNumber = atoi(argv[1]);
+    timers = calloc(4, sizeof(struct TimeHandler));
+    struct TimeHandler mainTimer = timers[currentTimeHandler];
+    ++currentTimeHandler;
+    clock_gettime(CLOCK_MONOTONIC, &mainTimer.time_start);
+
+    queue = queue_init(argc - 1);
+    for(int i = 2; i < argc; ++i) {
+        queue_add(&queue, argv[i]);
+    }
+
+
 	/* Initialize our coroutine global cooperative scheduler. */
 	coro_sched_init();
 	/* Start several coroutines. */
-	for (int i = 0; i < 3; ++i) {
+	for (int i = 0; i < corutineNumber; ++i) {
 		/*
 		 * The coroutines can take any 'void *' interpretation of which
 		 * depends on what you want. Here as an example I give them
@@ -87,7 +261,76 @@ main(int argc, char **argv)
 	}
 	/* All coroutines have finished. */
 
-	/* IMPLEMENT MERGING OF THE SORTED ARRAYS HERE. */
+
+    int ** storage = calloc(queue.last_elem, sizeof(int *));
+    int * sizes = calloc(queue.last_elem, sizeof(int));
+    int storageIndex = 0;
+    int all_size = 0;
+
+	for(int i = 0; i < queue.current; ++i) {
+        int size = 4;
+        storage[storageIndex] = calloc(size, sizeof(int));
+        int index = 0;
+	    FILE *file = fopen(queue.str[i], "r");
+	    while(fscanf(file, "%d", storage[storageIndex] + index) != EOF){
+            ++index;
+	        if(index == size){
+	            storage[storageIndex] = realloc(storage[storageIndex], size*2*sizeof(int));
+	            size *= 2;
+	        }
+	    }
+	    sizes[storageIndex] = index;
+	    all_size += index;
+	    ++storageIndex;
+	}
+
+    int *currents = calloc(queue.last_elem, sizeof(int));
+	for(int i = 0; i < queue.last_elem; ++i) {
+	    currents[i] = 0;
+	}
+
+    int *result_vector = calloc(all_size, sizeof(int));
+	int k = 0;
+
+	while(k < all_size) {
+	    int idx_min = -1, min_value = INT_MAX;
+	    for(int i = 0; i < queue.last_elem; ++i) {
+	        if (currents[i] < sizes[i]) {
+                int value = storage[i][currents[i]];
+                if (value < min_value) {
+                    min_value = value;
+                    idx_min = i;
+                }
+            }
+	    }
+
+	    currents[idx_min]++;
+        result_vector[k++] = min_value;
+	}
+
+	FILE * file  = fopen("result.txt", "w");
+	for(int j = 0; j < all_size; ++j){
+        fprintf(file, "%d ", result_vector[j]);
+	}
+
+
+
+    for(int i = 0; i < queue.current; ++i) {
+        free(storage[i]);
+    }
+    free(storage);
+
+    fclose(file);
+    free(result_vector);
+    free(queue.str);
+    free(currents);
+    free(sizes);
+    clock_gettime(CLOCK_MONOTONIC, &mainTimer.time_end);
+    double timeElapsed =
+            ( (double)(mainTimer.time_end.tv_nsec - mainTimer.time_start.tv_nsec) / 1000000.0);
+    double totalTime =  (mainTimer.time_end.tv_sec - mainTimer.time_start.tv_sec) * 1000.0 + timeElapsed;
+    printf("TOTAL PROGRAM TIME: %lf ms\n", totalTime);
+    free(timers);
 
 	return 0;
 }
