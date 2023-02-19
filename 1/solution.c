@@ -196,14 +196,11 @@ coroutine_func_f(void *context)
         quickSort(array, index, &corTimer);
 
         handler->arrayGlobal[*(handler->current)] = calloc(index, sizeof(int));
-        for (int i = 0; i < index; ++i) {
-           handler->arrayGlobal[*(handler->current)][i] = array[i];
-        }
+        handler->arrayGlobal[*(handler->current)] = memcpy(handler->arrayGlobal[*(handler->current)], array, index*sizeof(int));
 
         handler->sizes[*(handler->current)] = index;
         *handler->globalSize += index;
         ++*(handler->current);
-
         free(array);
 
     }
@@ -214,6 +211,7 @@ coroutine_func_f(void *context)
     printf("%s: Total execution time was %lf us\n", name, totalTime);
     printf("%s: switch count %lld\n", name, coro_switch_count(this));
     free(name);
+    free(handler);
     return 0;
 }
 
