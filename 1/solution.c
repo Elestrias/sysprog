@@ -27,8 +27,13 @@ struct TimeHandler{
     double totalTimeMs;
 };
 
-struct TimeHandler * timers;
-int currentTimeHandler = 0;
+struct CorHandler{
+    char * name;
+    int **arrayGlobal;
+    int * sizes;
+    int *current;
+    int *globalSize;
+};
 
 struct Queue{
     char **str;
@@ -65,7 +70,7 @@ struct stackEntry{
 
 struct stackGlobal{
     struct stackEntry * stack;
-    uint size;
+    unsigned int size;
 };
 
 int pushStack(struct stackGlobal *stack, int start, int end)
@@ -99,16 +104,6 @@ int popStack(struct  stackGlobal * stack, struct stackEntry * result)
     return 0;
 }
 
-static void
-other_function(const char *name, int depth)
-{
-	struct coro *this = coro_this();
-	printf("%s: entered function, depth = %d\n", name, depth);
-	coro_yield();
-	if (depth < 3)
-		other_function(name, depth + 1);
-}
-
 void swap(int *a, int *b)
 {
     int temp = *a;
@@ -140,27 +135,27 @@ void quickSort(int array[], int n, struct TimeHandler *timer)
     pushStack(&stack, start, end);
 
     while(stack.size != 0){
-      struct stackEntry current;
-      popStack(&stack, &current);
-      start = current.start;
-      end = current.end;
+        struct stackEntry current;
+        popStack(&stack, &current);
+        start = current.start;
+        end = current.end;
 
-      int pivot = take_partition(array, start, end);
-      if(pivot - 1 > start){
-          pushStack(&stack, start, pivot - 1);
-      }
+        int pivot = take_partition(array, start, end);
+        if(pivot - 1 > start){
+            pushStack(&stack, start, pivot - 1);
+        }
 
-      if(pivot + 1 < end){
-          pushStack(&stack, pivot + 1, end);
-      }
+        if(pivot + 1 < end){
+            pushStack(&stack, pivot + 1, end);
+        }
 
-      clock_gettime(CLOCK_MONOTONIC, &timer->time_end);
-      double timeElapsed =
-                ( (double)(timer->time_end.tv_nsec - timer->time_start.tv_nsec) / 1000000.0);
-      double totalTime =  (timer->time_end.tv_sec - timer->time_start.tv_sec) * 1000.0 + timeElapsed;
-      timer->totalTimeMs += totalTime;
-      coro_yield();
-      clock_gettime(CLOCK_MONOTONIC, &timer->time_start);
+        clock_gettime(CLOCK_MONOTONIC, &timer->time_end);
+        double timeElapsed =
+                ( (double)(timer->time_end.tv_nsec - timer->time_start.tv_nsec) / 1000.0);
+        double totalTime =  (timer->time_end.tv_sec - timer->time_start.tv_sec) * 1000000.0 + timeElapsed;
+        timer->totalTimeMs += totalTime;
+        coro_yield();
+        clock_gettime(CLOCK_MONOTONIC, &timer->time_start);
     }
 }
 
@@ -172,10 +167,10 @@ static int
 coroutine_func_f(void *context)
 {
     struct coro *this = coro_this();
-    char *name = context;
-    struct TimeHandler corTimer = timers[currentTimeHandler];
+    struct CorHandler *handler = context;
+    char *name = handler->name;
+    struct TimeHandler corTimer;
     corTimer.totalTimeMs = 0;
-    ++currentTimeHandler;
     clock_gettime(CLOCK_MONOTONIC, &corTimer.time_start);
 
     printf("Started coroutine %s\n", name);
@@ -196,21 +191,27 @@ coroutine_func_f(void *context)
                 size *= 2;
             }
         }
-        quickSort(array, index, &corTimer);
         fclose(file);
-        FILE *fileWrite = fopen(nameFile, "w");
+
+        quickSort(array, index, &corTimer);
+
+        handler->arrayGlobal[*(handler->current)] = calloc(index, sizeof(int));
         for (int i = 0; i < index; ++i) {
-            fprintf(fileWrite, "%d ", array[i]);
+           handler->arrayGlobal[*(handler->current)][i] = array[i];
         }
-        fclose(fileWrite);
+
+        handler->sizes[*(handler->current)] = index;
+        *handler->globalSize += index;
+        ++*(handler->current);
+
         free(array);
 
     }
     clock_gettime(CLOCK_MONOTONIC, &corTimer.time_end);
     double timeElapsed =
-            ( (double)(corTimer.time_end.tv_nsec - corTimer.time_start.tv_nsec) / 1000000.0);
-    double totalTime =  (corTimer.time_end.tv_sec - corTimer.time_start.tv_sec) * 1000.0 + timeElapsed;
-    printf("%s: Total execution time was %lf ms\n", name, totalTime);
+            ( (double)(corTimer.time_end.tv_nsec - corTimer.time_start.tv_nsec) / 1000.0);
+    double totalTime =  (corTimer.time_end.tv_sec - corTimer.time_start.tv_sec) * 1000000.0 + timeElapsed;
+    printf("%s: Total execution time was %lf us\n", name, totalTime);
     printf("%s: switch count %lld\n", name, coro_switch_count(this));
     free(name);
     return 0;
@@ -220,9 +221,7 @@ int
 main(int argc, char **argv)
 {
     int corutineNumber = atoi(argv[1]);
-    timers = calloc(4, sizeof(struct TimeHandler));
-    struct TimeHandler mainTimer = timers[currentTimeHandler];
-    ++currentTimeHandler;
+    struct TimeHandler mainTimer;
     clock_gettime(CLOCK_MONOTONIC, &mainTimer.time_start);
 
     queue = queue_init(argc - 1);
@@ -230,107 +229,99 @@ main(int argc, char **argv)
         queue_add(&queue, argv[i]);
     }
 
-
-	/* Initialize our coroutine global cooperative scheduler. */
-	coro_sched_init();
-	/* Start several coroutines. */
-	for (int i = 0; i < corutineNumber; ++i) {
-		/*
-		 * The coroutines can take any 'void *' interpretation of which
-		 * depends on what you want. Here as an example I give them
-		 * some names.
-		 */
-		char name[16];
-		sprintf(name, "coro_%d", i);
-		/*
-		 * I have to copy the name. Otherwise all the coroutines would
-		 * have the same name when they finally start.
-		 */
-		coro_new(coroutine_func_f, strdup(name));
-	}
-	/* Wait for all the coroutines to end. */
-	struct coro *c;
-	while ((c = coro_sched_wait()) != NULL) {
-		/*
-		 * Each 'wait' returns a finished coroutine with which you can
-		 * do anything you want. Like check its exit status, for
-		 * example. Don't forget to free the coroutine afterwards.
-		 */
-		printf("Finished %d\n", coro_status(c));
-		coro_delete(c);
-	}
-	/* All coroutines have finished. */
-
-
-    int ** storage = calloc(queue.last_elem, sizeof(int *));
+    int ** globalArray = calloc(queue.last_elem, sizeof(int *));
+    int * globalSize = calloc(1, sizeof(int));
     int * sizes = calloc(queue.last_elem, sizeof(int));
-    int storageIndex = 0;
-    int all_size = 0;
+    *globalSize = 0;
+    int *currentPos = calloc(1, sizeof(int));
+    *currentPos = 0;
 
-	for(int i = 0; i < queue.current; ++i) {
-        int size = 4;
-        storage[storageIndex] = calloc(size, sizeof(int));
-        int index = 0;
-	    FILE *file = fopen(queue.str[i], "r");
-	    while(fscanf(file, "%d", storage[storageIndex] + index) != EOF){
-            ++index;
-	        if(index == size){
-	            storage[storageIndex] = realloc(storage[storageIndex], size*2*sizeof(int));
-	            size *= 2;
-	        }
-	    }
-	    sizes[storageIndex] = index;
-	    all_size += index;
-	    ++storageIndex;
-	}
+    /* Initialize our coroutine global cooperative scheduler. */
+    coro_sched_init();
+    /* Start several coroutines. */
+    for (int i = 0; i < corutineNumber; ++i) {
+        /*
+         * The coroutines can take any 'void *' interpretation of which
+         * depends on what you want. Here as an example I give them
+         * some names.
+         */
+        char name[16];
+        sprintf(name, "coro_%d", i);
+        /*
+         * I have to copy the name. Otherwise all the coroutines would
+         * have the same name when they finally start.
+         */
+        struct CorHandler *handler = calloc(1, sizeof(struct CorHandler));
+        handler->name = strdup(name);
+        handler->arrayGlobal = globalArray;
+        handler->globalSize = globalSize;
+        handler->current = currentPos;
+        handler->sizes = sizes;
+        coro_new(coroutine_func_f, handler);
+    }
+    /* Wait for all the coroutines to end. */
+    struct coro *c;
+    while ((c = coro_sched_wait()) != NULL) {
+        /*
+         * Each 'wait' returns a finished coroutine with which you can
+         * do anything you want. Like check its exit status, for
+         * example. Don't forget to free the coroutine afterwards.
+         */
+        printf("Finished %d\n", coro_status(c));
+        coro_delete(c);
+    }
+    /* All coroutines have finished. */
+
+    int all_size = *globalSize;
 
     int *currents = calloc(queue.last_elem, sizeof(int));
-	for(int i = 0; i < queue.last_elem; ++i) {
-	    currents[i] = 0;
-	}
+    for(int i = 0; i < queue.last_elem; ++i) {
+        currents[i] = 0;
+    }
 
     int *result_vector = calloc(all_size, sizeof(int));
-	int k = 0;
+    int k = 0;
 
-	while(k < all_size) {
-	    int idx_min = -1, min_value = INT_MAX;
-	    for(int i = 0; i < queue.last_elem; ++i) {
-	        if (currents[i] < sizes[i]) {
-                int value = storage[i][currents[i]];
+    while(k < all_size) {
+        int idx_min = -1, min_value = INT_MAX;
+        for(int i = 0; i < queue.last_elem; ++i) {
+            if (currents[i] < sizes[i]) {
+                int value = globalArray[i][currents[i]];
                 if (value < min_value) {
                     min_value = value;
                     idx_min = i;
                 }
             }
-	    }
+        }
 
-	    currents[idx_min]++;
+        currents[idx_min]++;
         result_vector[k++] = min_value;
-	}
+    }
 
-	FILE * file  = fopen("result.txt", "w");
-	for(int j = 0; j < all_size; ++j){
+    FILE * file  = fopen("result.txt", "w");
+    for(int j = 0; j < all_size; ++j){
         fprintf(file, "%d ", result_vector[j]);
-	}
+    }
 
 
 
     for(int i = 0; i < queue.current; ++i) {
-        free(storage[i]);
+        free(globalArray[i]);
     }
-    free(storage);
 
+    free(globalArray);
     fclose(file);
     free(result_vector);
     free(queue.str);
     free(currents);
+    free(globalSize);
+    free(currentPos);
     free(sizes);
+
     clock_gettime(CLOCK_MONOTONIC, &mainTimer.time_end);
     double timeElapsed =
-            ( (double)(mainTimer.time_end.tv_nsec - mainTimer.time_start.tv_nsec) / 1000000.0);
-    double totalTime =  (mainTimer.time_end.tv_sec - mainTimer.time_start.tv_sec) * 1000.0 + timeElapsed;
-    printf("TOTAL PROGRAM TIME: %lf ms\n", totalTime);
-    free(timers);
-
-	return 0;
+            ( (double)(mainTimer.time_end.tv_nsec - mainTimer.time_start.tv_nsec) / 1000.0);
+    double totalTime =  (mainTimer.time_end.tv_sec - mainTimer.time_start.tv_sec) * 1000000.0 + timeElapsed;
+    printf("TOTAL PROGRAM TIME: %lf us\n", totalTime);
+    return 0;
 }
