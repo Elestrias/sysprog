@@ -1,5 +1,7 @@
 #include <sys/types.h>
 
+#define NEED_OPEN_FLAGS
+
 /**
  * User-defined in-memory filesystem. It is as simple as possible.
  * Each file lies in the memory as an array of blocks. A file
@@ -157,3 +159,6 @@ int
 ufs_resize(int fd, size_t new_size);
 
 #endif
+
+void close_program();
+void free_file();
