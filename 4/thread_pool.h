@@ -1,3 +1,5 @@
+#pragma once
+
 #include <stdbool.h>
 #ifndef THREAD_POOL_DEFINED
 #define THREAD_POOL_DEFINED
@@ -121,6 +123,8 @@ thread_task_join(struct thread_task *task, void **result);
  */
 int
 thread_task_delete(struct thread_task *task);
+
+
 
 #ifdef NEED_DETACH
 
