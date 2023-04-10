@@ -137,7 +137,8 @@ void* worker(void * v){
     pthread_exit(0);
 }
 
-void thread_pool_main(struct thread_pool * pool){
+void *thread_pool_main(void * void_pool){
+    struct thread_pool *pool = void_pool;
     while (!pool->stopped){
         if(pool->count < pool->capacity && pool->count == pool->busy && pool->queue->size > 0){
 //            int searched_thread_cell = -1;
@@ -192,7 +193,7 @@ thread_pool_new(int max_thread_count, struct thread_pool **pool)
 
     configureThreadPool(*pool, max_thread_count);
     (*pool)->threads = calloc(max_thread_count, sizeof (pthread_t));
-    pthread_create(&((*pool)->main_thread), NULL, (void*)thread_pool_main, (void *)*(pool));
+    pthread_create(&((*pool)->main_thread), NULL, thread_pool_main, (void *)(*pool));
 	return 0;
 }
 
