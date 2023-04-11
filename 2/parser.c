@@ -181,11 +181,28 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                 }
                 goto general;
             case '\\':
-                if(i+1 != len && line[i+1] != '\n'){
+                if(i + 1 < len && (line[i + 1] == ' ' || line[i + 1] == '\\')){
                     currentWord[cursor++] = line[++i];
                     break;
+                }else if(i + 1 < len && ((braced && line[i+1] == '\'') || (bracedDouble && line[i+1] == '\"'))){
+                    currentWord[cursor++] = line[i++];
+                    currentWord[cursor++] = line[i];
+                    break;
+                }else if(i+1 < len && line[i+1] == 'n'){
+                    currentWord[cursor++] = line[i];
+                    break;
                 }else if(i+1 != len && line[i+1] == '\n'){
-                    goto readAgain;
+                    i = -1;
+                    if (first_clear_line) {
+                        free(line);
+                    }
+                    first_clear_line = 1;
+                    line = NULL;
+                    len = 0;
+                    if(getline(&line, &len, stdin) == -1){
+                        return 1;
+                    }
+                    break;
                 }
             case '\"':
                 if(!braced && bracedDouble){

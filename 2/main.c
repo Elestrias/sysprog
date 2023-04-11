@@ -8,17 +8,48 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 
-int executeCommand(struct Commands *comms, int *current, int globalDaemon) {
-    struct Command command = comms->data[*current];
+void clearMemory(struct Commands * coms){
+    for(int i = 0; i < coms->size; i++){
+        for(int j = 0; j < coms->data[i].argc; j++){
+            free(coms->data[i].argv[j]);
+        }
+        if(coms->data[i].argc != 0) {
+            free(coms->data[i].name);
+        }
+        free(coms->data[i].argv);
+    }
+    free(coms->data);
+}
 
-    if (strcmp(command.argv[0], "cd") == 0) {
-        char *path = command.argv[1];
+int executeCd(int argc, char *argv[]){
+    if (strcmp(argv[0], "cd") == 0) {
+        char *path = argv[1];
         if (chdir(path) != 0) {
             printf("cd: %s: No such file or directory\n", path);
             return 1;
         }
         return 0;
     }
+}
+
+void executeExit(struct Commands *comms, int needClear, int argc, char *argv[]){
+    if (argc == 1) {
+        if(needClear) {
+            clearMemory(comms);
+        }
+        exit(0);
+    }
+
+    int ret_code = 0;
+    sscanf(argv[1], "%d", &ret_code);
+    if(needClear) {
+        clearMemory(comms);
+    }
+    exit(ret_code);
+}
+
+int executeCommand(struct Commands *comms, int *current, int globalDaemon) {
+    struct Command command = comms->data[*current];
 
     int file = 0;
     int daemon = globalDaemon;
@@ -111,11 +142,20 @@ int executeCommand(struct Commands *comms, int *current, int globalDaemon) {
                             dup2(old_pf[0], STDIN_FILENO);
                             dup2(pf[1], STDOUT_FILENO);
                         }
+
+                        if(strcmp(pipedComms[i]->argv[0], "exit") == 0){
+                            executeExit(comms, 0, pipedComms[i]->argc, pipedComms[i]->argv);
+                        }
+
+                        if(strcmp(pipedComms[i]->argv[0], "cd") == 0){
+                            exit(executeCd(pipedComms[i]->argc, pipedComms[i]->argv));
+                        }
+
                         pipedComms[i]->argv[pipedComms[i]->argc] = NULL;
-                        if(execvp(pipedComms[i]->name, pipedComms[i]->argv)  == -1){
+                        if (execvp(pipedComms[i]->name, pipedComms[i]->argv) == -1) {
                             printf("%s: command not found\n", pipedComms[i]->name);
                             goto dead;
-                        };
+                        }
                     }
 
                     close(old_pf[0]);
@@ -157,6 +197,14 @@ int executeCommand(struct Commands *comms, int *current, int globalDaemon) {
 
     }
 
+    if(strcmp(command.argv[0], "exit") == 0){
+        executeExit(comms, 1, command.argc, command.argv);
+    }
+
+    if(strcmp(command.argv[0], "cd") == 0){
+        return  executeCd(command.argc, command.argv);
+    }
+
     pid_t pid;
 
     pid = fork();
@@ -187,19 +235,6 @@ int executeCommand(struct Commands *comms, int *current, int globalDaemon) {
         fd = NULL;
     }
     return status;
-}
-
-void clearMemory(struct Commands * coms){
-    for(int i = 0; i < coms->size; i++){
-        for(int j = 0; j < coms->data[i].argc; j++){
-            free(coms->data[i].argv[j]);
-        }
-        if(coms->data[i].argc != 0) {
-            free(coms->data[i].name);
-        }
-        free(coms->data[i].argv);
-    }
-    free(coms->data);
 }
 
 int main() {
