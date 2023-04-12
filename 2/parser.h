@@ -14,6 +14,7 @@ enum Sep_{
 struct Command{
         char * name;
         int argc;
+        int capacity;
         char **argv;
         Sep type;
 };

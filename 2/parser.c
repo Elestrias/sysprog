@@ -8,19 +8,36 @@ void addToStorage(struct Command * com, char * word, int* starter){
         com->name = strdup(word);
         *starter = 0;
         com->argv = calloc(1024, sizeof(char*));
+        com->capacity = 1024;
     }
     com->argv[com->argc] = strdup(word);
     ++com->argc;
+    if(com->argc >= com->capacity){
+        com->capacity *= 2;
+        com->argv = realloc(com->argv, com->capacity*sizeof(char*));
+    }
 }
 
 void reallocStorage(struct Commands * comms){
     comms->capacity *= 2;
-    comms->data = realloc(comms->data, comms->capacity*sizeof(struct Command *));
+    comms->data = realloc(comms->data, comms->capacity *sizeof(struct Command));
+}
+
+void reallocWord(char **currentWord, size_t * size){
+    *size *= 2;
+    (*currentWord) = realloc((*currentWord), *size * sizeof(char));
+}
+
+void checkStorageWord(char ** currentWord, size_t * size, int cursor){
+    if(cursor >= *size){
+        reallocWord(currentWord, size);
+    }
 }
 
 int parseInput(struct Commands * storage, char* line, size_t len){
     int first_clear_line = 0;
     char symbol;
+    size_t currentSize = 1024;
     char * currentWord = calloc(1024, sizeof(char));
     memset(currentWord, 0, 1024);
     int cursor = 0;
@@ -51,7 +68,9 @@ int parseInput(struct Commands * storage, char* line, size_t len){
 
                         storage->data[++storage->size].type = OR;
 
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
                         cursor = 0;
 
                         starter = 1;
@@ -73,7 +92,10 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                         }
                         storage->data[++storage->size].type = PIPE;
 
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
+
                         cursor = 0;
 
                         starter = 1;
@@ -96,7 +118,9 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                             reallocStorage(storage);
                         }
                         storage->data[++storage->size].type = END_PIPE;
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
                         cursor = 0;
                         starter = 1;
                         i++;
@@ -116,7 +140,9 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                             reallocStorage(storage);
                         }
                         storage->data[++storage->size].type = FILE_PIPE;
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
                         cursor = 0;
                         starter = 1;
                     }
@@ -138,7 +164,10 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                             reallocStorage(storage);
                         }
                         storage->data[++storage->size].type = AND;
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
+
                         cursor = 0;
                         starter = 1;
                         i++;
@@ -158,7 +187,9 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                             reallocStorage(storage);
                         }
                         storage->data[++storage->size].type = DAEMON;
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
                         cursor = 0;
                         starter = 1;
                     }
@@ -174,7 +205,9 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                             }
                         }
                         addToStorage(storage->data + storage->size, currentWord, &starter);
-                        memset(currentWord, 0, 1024);
+                        memset(currentWord, 0, currentSize);
+                        currentSize = 512;
+                        reallocWord(&currentWord, &currentSize);
                         cursor = 0;
                     }
                     break;
@@ -182,13 +215,16 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                 goto general;
             case '\\':
                 if(i + 1 < len && (line[i + 1] == ' ' || line[i + 1] == '\\')){
+                    checkStorageWord(&currentWord, &currentSize, cursor + 1);
                     currentWord[cursor++] = line[++i];
                     break;
                 }else if(i + 1 < len && ((braced && line[i+1] == '\'') || (bracedDouble && line[i+1] == '\"'))){
+                    checkStorageWord(&currentWord, &currentSize, cursor + 2);
                     currentWord[cursor++] = line[i++];
                     currentWord[cursor++] = line[i];
                     break;
                 }else if(i+1 < len && line[i+1] == 'n'){
+                    checkStorageWord(&currentWord, &currentSize, cursor + 1);
                     currentWord[cursor++] = line[i];
                     break;
                 }else if(i+1 != len && line[i+1] == '\n'){
@@ -221,11 +257,11 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                     break;
                 }
                 general:
+                checkStorageWord(&currentWord, &currentSize, cursor + 1);
                 currentWord[cursor++] = symbol;
                 break;
             case '\n':
                 if(braced || bracedDouble){
-                    readAgain:
                     i = -1;
                     if (first_clear_line) {
                         free(line);

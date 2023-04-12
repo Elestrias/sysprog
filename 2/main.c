@@ -7,6 +7,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+//#include "heap_help/heap_help.h"
 
 void clearMemory(struct Commands * coms){
     for(int i = 0; i < coms->size; i++){
@@ -22,14 +23,12 @@ void clearMemory(struct Commands * coms){
 }
 
 int executeCd(int argc, char *argv[]){
-    if (strcmp(argv[0], "cd") == 0) {
-        char *path = argv[1];
-        if (chdir(path) != 0) {
-            printf("cd: %s: No such file or directory\n", path);
-            return 1;
-        }
-        return 0;
+    char *path = argv[1];
+    if (chdir(path) != 0) {
+        printf("cd: %s: No such file or directory\n", path);
+        return 1;
     }
+    return 0;
 }
 
 void executeExit(struct Commands *comms, int needClear, int argc, char *argv[]){
