@@ -62,20 +62,20 @@ test_push(void)
 		   "task can be deleted before push");
 	unit_fail_if(thread_task_new(&t, task_incr_f, &arg) != 0);
 
-	unit_check(thread_task_join(t, &result) == TPOOL_ERR_TASK_NOT_PUSHED,
+	unit_check(thread_task_join(t,20, &result) == TPOOL_ERR_TASK_NOT_PUSHED,
 		   "can't join a not pushed task");
 
     unit_check(thread_pool_push_task(p, t) == 0, "pushed");
 	unit_check(thread_task_delete(t) == TPOOL_ERR_TASK_IN_POOL,
 		   "can't delete before join");
-    unit_check(thread_task_join(t, &result) == 0, "joined");
+    unit_check(thread_task_join(t, 20, &result) == 0, "joined");
     printf("Before join: %d\n", thread_pool_thread_count(p));
 	unit_check(result == &arg && arg == 1, "the task really did something");
     printf("After join: %d\n", thread_pool_thread_count(p));
 
 	unit_check(thread_pool_thread_count(p) == 1, "one active thread");
 	unit_check(thread_pool_push_task(p, t) == 0, "pushed again");
-	unit_check(thread_task_join(t, &result) == 0, "joined");
+	unit_check(thread_task_join(t, 20, &result) == 0, "joined");
 	unit_check(thread_pool_thread_count(p) == 1, "still one active thread");
 	unit_check(thread_task_delete(t) == 0, "deleted after join");
 
@@ -113,7 +113,7 @@ test_thread_pool_delete(void)
 	unit_check(thread_pool_delete(p) == TPOOL_ERR_HAS_TASKS, "delete does "\
 		   "not work until there are not finished tasks");
 	pthread_mutex_unlock(&m);
-	unit_fail_if(thread_task_join(t, &result) != 0);
+	unit_fail_if(thread_task_join(t, 20, &result) != 0);
 	unit_fail_if(thread_task_delete(t) != 0);
 
 	unit_check(thread_pool_delete(p) == 0, "now delete works");
@@ -134,7 +134,7 @@ map_reduce_inc(struct thread_pool *p, struct thread_task **tasks, int count,
 	}
 	for (int i = 0; i < count; ++i) {
 		struct thread_task *t = tasks[i];
-		unit_fail_if(thread_task_join(t, &result) != 0);
+		unit_fail_if(thread_task_join(t, 20, &result) != 0);
 		unit_fail_if(thread_task_delete(t) != 0);
 		unit_fail_if(result != arg);
 	}
@@ -186,14 +186,15 @@ test_thread_pool_max_tasks(void)
 			continue;
 		}
 		unit_check(rc == TPOOL_ERR_TOO_MANY_TASKS, "too many tasks");
-		break;
+        free(tasks[i]);
+        break;
 	}
 	unit_check(overuse < more_count, "reached max tasks");
 	__atomic_store_n(&arg, 1, __ATOMIC_RELAXED);
 	for (int i = 0; i < TPOOL_MAX_TASKS + overuse; ++i) {
 		void *result;
 		struct thread_task *t = tasks[i];
-		unit_fail_if(thread_task_join(t, &result) != 0);
+		unit_fail_if(thread_task_join(t, 20, &result) != 0);
 		unit_fail_if(thread_task_delete(t) != 0);
 		unit_fail_if(result != &arg);
 	}
