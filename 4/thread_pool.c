@@ -239,7 +239,7 @@ thread_task_is_running(const struct thread_task *task)
 }
 
 int
-thread_task_join(struct thread_task *task, double timeout, void **result)
+thread_task_join(struct thread_task *task, void **result)
 {
 	if(result == NULL || task == NULL){
         return  TPOOL_ERR_INVALID_ARGUMENT;
@@ -251,7 +251,47 @@ thread_task_join(struct thread_task *task, double timeout, void **result)
         return TPOOL_ERR_TASK_NOT_PUSHED;
     }
 
-    if(task->state == FINISHED){
+    if(task->state == FINISHED || task->state == JOINED){
+        task->state = JOINED;
+        *result = task->returnVal;
+        pthread_mutex_unlock(&task->mutex);
+        return 0;
+    }
+
+    if(!task->joinStarted){
+        task->joinStarted = 1;
+
+        while(task->state != FINISHED){
+            pthread_cond_wait(&task->taskCond, &task->mutex);
+            if(task == NULL){
+                return 0;
+            }
+        }
+
+        task->state = JOINED;
+        *result = task->returnVal;
+    }
+
+    pthread_mutex_unlock(&task->mutex);
+    return 0;
+}
+
+#ifdef NEED_TIMED_JOIN
+
+int
+thread_task_timed_join(struct thread_task *task, double timeout, void **result)
+{
+	if(result == NULL || task == NULL){
+        return  TPOOL_ERR_INVALID_ARGUMENT;
+    }
+    pthread_mutex_lock(&task->mutex);
+
+    if(task->state == AWAIT){
+        pthread_mutex_unlock(&task->mutex);
+        return TPOOL_ERR_TASK_NOT_PUSHED;
+    }
+
+    if(task->state == FINISHED || task->state == JOINED){
         task->state = JOINED;
         *result = task->returnVal;
         pthread_mutex_unlock(&task->mutex);
@@ -263,6 +303,9 @@ thread_task_join(struct thread_task *task, double timeout, void **result)
         while(task->state != FINISHED){
             if(timeout == 0){
                 pthread_cond_wait(&task->taskCond, &task->mutex);
+                if(task == NULL){
+                    return 0;
+                }
             }else {
                 struct timeval curent;
                 gettimeofday(&curent, 0);
@@ -271,6 +314,11 @@ thread_task_join(struct thread_task *task, double timeout, void **result)
                 ts_timeout.tv_nsec = curent.tv_usec * 1000;
 
                 pthread_cond_timedwait(&task->taskCond, &task->mutex, &ts_timeout);
+
+                if(task == NULL){
+                    return 0;
+                }
+
                 if (task->state != FINISHED) {
                     pthread_mutex_unlock(&task->mutex);
                     printf("TPOOL_ERR_TIMEOUT\n");
@@ -278,6 +326,7 @@ thread_task_join(struct thread_task *task, double timeout, void **result)
                 }
             }
         }
+
         task->state = JOINED;
         *result = task->returnVal;
     }
@@ -286,6 +335,7 @@ thread_task_join(struct thread_task *task, double timeout, void **result)
     return 0;
 }
 
+#endif
 
 int
 thread_task_delete(struct thread_task *task)
@@ -310,9 +360,6 @@ thread_task_delete(struct thread_task *task)
 
 #ifdef NEED_DETACH
 
-
-
-#endif
 int
 thread_task_detach(struct thread_task *task)
 {
@@ -328,13 +375,16 @@ thread_task_detach(struct thread_task *task)
     }
 
     if(task->state == FINISHED){
+        pthread_cond_broadcast(&task->taskCond);
         pthread_mutex_unlock(&task->mutex);
         thread_task_delete(task);
         return 0;
     }
 
     task->detached = 1;
-    pthread_mutex_lock(&task->mutex);
+    pthread_mutex_unlock(&task->mutex);
 
     return 0;
 }
+
+#endif
