@@ -3,13 +3,13 @@
 #include "stdlib.h"
 #include <unistd.h>
 #include <stdatomic.h>
+#include <asm-generic/errno.h>
 #include "sys/time.h"
 #include  "stdio.h"
 
 struct thread_task {
     thread_task_f function;
     void *arg;
-    atomic_int joinStarted;
     pthread_mutex_t mutex;
     pthread_cond_t taskCond;
 
@@ -26,7 +26,6 @@ struct thread_task {
 };
 
 void configureThreadTask(struct thread_task *task) {
-    task->joinStarted = 0;
     task->state = 0;
     task->detached = 0;
     pthread_mutex_init(&task->mutex, NULL);
@@ -45,7 +44,7 @@ struct thread_pool {
     int cursor;
     int readCursor;
 
-    atomic_int task_count;
+    int task_count;
     atomic_int stopped;
 };
 
@@ -179,7 +178,6 @@ thread_pool_push_task(struct thread_pool *pool, struct thread_task *task) {
     }
 
     task->state = PUSHED;
-    task->joinStarted = 0;
     task->detached = 0;
 
     pool->queue[pool->cursor++] = task;
@@ -292,16 +290,12 @@ thread_task_timed_join(struct thread_task *task, double timeout, void **result) 
     long long int part = (long long int) ((timeout - (double) secs) * 1e9);
     ts_timeout.tv_sec = curent.tv_sec + (long long int) timeout;
     ts_timeout.tv_nsec = curent.tv_usec * 1000 + part;
-    struct timespec currentAfter;
 
     do {
-        pthread_cond_timedwait(&task->taskCond, &task->mutex, &ts_timeout);
-        gettimeofday(&curent, NULL);
-        currentAfter.tv_sec = curent.tv_sec;
-        currentAfter.tv_nsec = curent.tv_usec * 1000;
+        int status = pthread_cond_timedwait(&task->taskCond, &task->mutex, &ts_timeout);
 
-        if (currentAfter.tv_sec > ts_timeout.tv_sec ||
-            (currentAfter.tv_sec == ts_timeout.tv_sec && currentAfter.tv_nsec > ts_timeout.tv_nsec) || task->state == FINISHED || task->state == JOINED) {
+
+        if (status == ETIMEDOUT || task->state == FINISHED || task->state == JOINED) {
             break;
         }
 
