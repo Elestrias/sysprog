@@ -250,6 +250,7 @@ int main() {
         }
         if(getline(&line, &line_size, stdin) == -1){
             clearMemory(&coms);
+            free(line);
             exit(0);
         }
 

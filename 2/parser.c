@@ -236,6 +236,8 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                     line = NULL;
                     len = 0;
                     if(getline(&line, &len, stdin) == -1){
+                        free(line);
+                        free(currentWord);
                         return 1;
                     }
                     break;
@@ -270,6 +272,8 @@ int parseInput(struct Commands * storage, char* line, size_t len){
                     line = NULL;
                     len = 0;
                     if(getline(&line, &len, stdin) == -1){
+                        free(line);
+                        free(currentWord);
                         return 1;
                     };
                 }
