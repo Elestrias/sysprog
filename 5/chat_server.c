@@ -152,6 +152,7 @@ chat_server_listen(struct chat_server *server, uint16_t port)
     int len = sizeof(reuse);
 
     if(setsockopt(server->socket, SOL_SOCKET, SO_REUSEADDR, &reuse, len) < 0){
+        close(server->socket);
         return CHAT_ERR_SYS;
     }
 
@@ -160,6 +161,7 @@ chat_server_listen(struct chat_server *server, uint16_t port)
     fcntl(server->socket, F_SETFL, flagMask);
 
     if(bind(server->socket, (struct sockaddr *)&addr,sizeof(addr)) < 0){
+        close(server->socket);
         return CHAT_ERR_PORT_BUSY;
     }
 
@@ -168,12 +170,13 @@ chat_server_listen(struct chat_server *server, uint16_t port)
     }
 
     if(listen(server->socket, SOMAXCONN) < 0){
+        close(server->socket);
+        close(server->epollStore);
         return  CHAT_ERR_SYS;
     }
 
     server->serverEvent.events = EPOLLIN | EPOLLET;
     server->serverEvent.data.ptr = (void *)server;
-
 
     if(epoll_ctl(server->epollStore, EPOLL_CTL_ADD, server->socket, &server->serverEvent) < 0){
         close(server->socket);
