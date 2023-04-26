@@ -35,13 +35,13 @@ struct chat_peer {
     struct  Buffer inBuf;
 };
 
-void initClient(struct chat_peer* client){
+void initClientServer(struct chat_peer* client){
     client->socket  = -1;
     client->inBufInited = 0;
     client->outBufInited = 0;
 }
 
-void deinitClient(struct  chat_peer* client){
+void deinitClientServer(struct  chat_peer* client){
     if(client->socket != -1){
         close(client->socket);
     }
@@ -89,7 +89,7 @@ chat_server_new(void)
     server->tail = NULL;
 
     for(int i = 0; i < server->peersCapacity; i++){
-        initClient(server->peers + i);
+        initClientServer(server->peers + i);
     }
 
 	return server;
@@ -274,7 +274,7 @@ chat_server_update(struct chat_server *server, double timeout)
 
                 if((recieved = recv(peer->socket, buffer , 1024,  MSG_DONTWAIT)) == 0){
                     epoll_ctl(server->epollStore, EPOLL_CTL_DEL,peer->socket,  &peer->clientEvent);
-                    deinitClient(peer);
+                    deinitClientServer(peer);
                 }else{
                     for(int h = 0; h < recieved; h++){
 
@@ -410,7 +410,7 @@ int
 chat_server_get_events(const struct chat_server *server)
 {
     if(server->socket == -1) {
-        return CHAT_ERR_NOT_STARTED;
+        return 0;
     }
 
     int mask = CHAT_EVENT_INPUT;

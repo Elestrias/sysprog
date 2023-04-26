@@ -175,7 +175,11 @@ chat_client_update(struct chat_client *client, double timeout)
     }
     struct pollfd copyFd = client->clientPoll;
     copyFd.revents = 0;
-    poll(&copyFd, 1, (int)(timeout * 1000));
+    int result = poll(&copyFd, 1, (int)(timeout * 1000));
+
+    if(result <= 0){
+        return CHAT_ERR_TIMEOUT;
+    }
 
     if(copyFd.revents & POLLIN){
         char buffer[1024];
