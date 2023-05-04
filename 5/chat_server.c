@@ -175,7 +175,7 @@ chat_server_listen(struct chat_server *server, uint16_t port)
         return  CHAT_ERR_SYS;
     }
 
-    server->serverEvent.events = EPOLLIN | EPOLLET;
+    server->serverEvent.events = EPOLLIN;
     server->serverEvent.data.ptr = (void *)server;
 
     if(epoll_ctl(server->epollStore, EPOLL_CTL_ADD, server->socket, &server->serverEvent) < 0){
@@ -258,7 +258,7 @@ chat_server_update(struct chat_server *server, double timeout)
             }
 
             ++server->numberOfPeers;
-            peer->clientEvent.events = EPOLLIN | EPOLLET;
+            peer->clientEvent.events = EPOLLIN;
             peer->clientEvent.data.ptr = (void*)peer;
 
             if(epoll_ctl(server->epollStore, EPOLL_CTL_ADD, peer->socket, &peer->clientEvent)){
@@ -283,18 +283,32 @@ chat_server_update(struct chat_server *server, double timeout)
                             peer->inBufInited = 1;
                         }
 
-                        peer->inBuf.buffer[peer->inBuf.cursor++] = buffer[h];
-
                         if(buffer[h] == '\n') {
                             struct Queue *newMsg = calloc(1, sizeof(struct Queue));
                             newMsg->next = NULL;
 
+                            if(peer->inBuf.bufferSize - peer->inBuf.cursor  < 2){
+                                peer->inBuf.buffer = realloc(peer->inBuf.buffer, peer->inBuf.bufferSize + 2);
+                            }
+                            peer->inBuf.buffer[peer->inBuf.cursor] = '\0';
+
+                            newMsg->message = calloc(1, sizeof(struct chat_message));
+                            newMsg->message->data = strdup(peer->inBuf.buffer);
+
+                            // HERE QUEUE PUSH
+                            if(server->head == NULL){
+                                server->head = newMsg;
+                                server->tail = newMsg;
+                            }else{
+                                server->tail->next = newMsg;
+                                server->tail = newMsg;
+                            }
+                            peer->inBuf.buffer[peer->inBuf.cursor++] = '\n';
+                            peer->inBuf.buffer[peer->inBuf.cursor] = '\0';
+
                             for(int z = 0; z < server->peersCapacity; z++){
                                 if(server->peers[z].socket != -1 && server->peers[z].socket != peer->socket){
-                                    if(peer->inBuf.cursor >= peer->inBuf.bufferSize){
-                                        peer->inBuf.buffer = realloc(peer->inBuf.buffer, peer->inBuf.bufferSize + 2);
-                                    }
-                                    peer->inBuf.buffer[peer->inBuf.cursor] = '\0';
+
                                     struct chat_peer * destPeer  = server->peers + z;
 
                                     if(!destPeer->outBufInited){
@@ -310,22 +324,11 @@ chat_server_update(struct chat_server *server, double timeout)
                                         }
 
                                     }else{
+                                        destPeer->outBuf.buffer = realloc(destPeer->outBuf.buffer, (destPeer->outBuf.bufferSize + peer->inBuf.bufferSize)*sizeof(char));
                                         strcat(destPeer->outBuf.buffer, peer->inBuf.buffer);
-                                        destPeer->outBuf.bufferSize = strlen(destPeer->outBuf.buffer);
+                                        destPeer->outBuf.bufferSize += strlen(peer->inBuf.buffer);
                                     }
                                 }
-                            }
-
-                            newMsg->message = calloc(1, sizeof(struct chat_message));
-                            newMsg->message->data = strdup(peer->inBuf.buffer);
-
-                            // HERE QUEUE PUSH
-                            if(server->head == NULL){
-                                server->head = newMsg;
-                                server->tail = newMsg;
-                            }else{
-                                server->tail->next = newMsg;
-                                server->tail = newMsg;
                             }
 
                             free(peer->inBuf.buffer);
@@ -333,11 +336,18 @@ chat_server_update(struct chat_server *server, double timeout)
                             continue;
                         }
 
+                        if(buffer[h] == '\0'){
+                            continue;
+                        }
+
+                        peer->inBuf.buffer[peer->inBuf.cursor++] = buffer[h];
+
                         if(peer->inBuf.cursor >= peer->inBuf.bufferSize){
                             peer->inBuf.bufferSize *= 2;
                             peer->inBuf.buffer = realloc(peer->inBuf.buffer, peer->inBuf.bufferSize);
                         }
                     }
+                    memset(buffer, '\0', 1024);
                 }
             }
             if(events->events & EPOLLOUT){

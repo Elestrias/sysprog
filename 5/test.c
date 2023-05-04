@@ -215,7 +215,7 @@ test_multi_feed(void)
 	msg = chat_server_pop_next(s);
 	unit_check(strcmp(msg->data, "msg2") == 0, "msg2");
 	chat_message_delete(msg);
-	unit_check(chat_server_pop_next(s) != NULL, "waiting for msg3");
+	unit_check(chat_server_pop_next(s) == NULL, "waiting for msg3");
 	unit_check(chat_client_feed(c1, "345", 3) == 0, "feed next part");
 	client_consume_events(c1);
 	server_consume_events(s);
@@ -266,7 +266,7 @@ test_multi_client(void)
 			int rc = sprintf(data, "cli_%d_msg_%d ", ci, mi);
 			// Ignore terminating zero.
 			data[rc] = '0';
-			unit_fail_if(chat_client_feed(clis[ci], data, len) != 0);
+			unit_fail_if(chat_client_feed(clis[ci], data, len + 1) != 0);
 			chat_client_update(clis[ci], 0);
 		}
 		chat_server_update(s, 0);
