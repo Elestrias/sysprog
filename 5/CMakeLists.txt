@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 project(Lab5)
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra -Wpedantic -Werror -Wall -Wno-gnu-folding-constant")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wextra -Wpedantic -Werror -Wall -Wno-gnu-folding-constant -pthread")
 
 include_directories(../utils)
 

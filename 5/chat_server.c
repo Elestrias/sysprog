@@ -376,12 +376,9 @@ chat_server_update(struct chat_server *server, double timeout)
                     free(events);
                     return CHAT_ERR_SYS;
                 }else{
-                    if(sent < peer->outBuf.bufferSize) {
-                        char * temp = strdup(peer->outBuf.buffer + sent);
-                        free(peer->outBuf.buffer);
-                        peer->outBuf.bufferSize -= sent;
-                        peer->outBuf.buffer = temp;
-                    }else{
+                    if(sent == 0){
+                        continue;
+                    }else if(sent >= peer->outBuf.bufferSize) {
                         free(peer->outBuf.buffer);
                         peer->outBuf.bufferSize = 0;
                         peer->outBuf.cursor = 0;
@@ -393,7 +390,11 @@ chat_server_update(struct chat_server *server, double timeout)
                             free(events);
                             return CHAT_ERR_SYS;
                         }
-
+                    }else{
+                        char * temp = strdup(peer->outBuf.buffer + sent);
+                        free(peer->outBuf.buffer);
+                        peer->outBuf.bufferSize -= sent;
+                        peer->outBuf.buffer = temp;
                     }
                 }
             }
