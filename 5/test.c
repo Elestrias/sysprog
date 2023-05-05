@@ -266,7 +266,8 @@ test_multi_client(void)
 			int rc = sprintf(data, "cli_%d_msg_%d ", ci, mi);
 			// Ignore terminating zero.
 			data[rc] = '0';
-			unit_fail_if(chat_client_feed(clis[ci], data, len + 1) != 0);
+			unit_fail_if(chat_client_feed(
+				clis[ci], data, size) != 0);
 			chat_client_update(clis[ci], 0);
 		}
 		chat_server_update(s, 0);
