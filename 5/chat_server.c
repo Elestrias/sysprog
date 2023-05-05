@@ -158,10 +158,15 @@ chat_server_listen(struct chat_server *server, uint16_t port)
 
     int flagMask = fcntl(server->socket, F_GETFL, 0);
     flagMask |= O_NONBLOCK;
-    fcntl(server->socket, F_SETFL, flagMask);
+    if(fcntl(server->socket, F_SETFL, flagMask) < 0){
+        close(server->socket);
+        server->socket = -1;
+        return CHAT_ERR_SYS;
+    }
 
     if(bind(server->socket, (struct sockaddr *)&addr,sizeof(addr)) < 0){
         close(server->socket);
+        server->socket = -1;
         return CHAT_ERR_PORT_BUSY;
     }
 
@@ -171,7 +176,9 @@ chat_server_listen(struct chat_server *server, uint16_t port)
 
     if(listen(server->socket, SOMAXCONN) < 0){
         close(server->socket);
+        server->socket = -1;
         close(server->epollStore);
+        server->epollStore = -1;
         return  CHAT_ERR_SYS;
     }
 
@@ -180,7 +187,9 @@ chat_server_listen(struct chat_server *server, uint16_t port)
 
     if(epoll_ctl(server->epollStore, EPOLL_CTL_ADD, server->socket, &server->serverEvent) < 0){
         close(server->socket);
+        server->socket = -1;
         close(server->epollStore);
+        server->epollStore = -1;
         return CHAT_ERR_SYS;
     }
 
@@ -230,6 +239,14 @@ chat_server_update(struct chat_server *server, double timeout)
 
             int client = accept(server->socket, (struct sockaddr *)&addr, &addr_len);
 
+            int flagMask = fcntl(client, F_GETFL, 0);
+            flagMask |= O_NONBLOCK;
+
+            if(fcntl(client, F_SETFL, flagMask) < 0){
+                free(events);
+                return CHAT_ERR_SYS;
+            }
+
             if(client < 0){
                 free(events);
                 return CHAT_ERR_SYS;
@@ -269,10 +286,10 @@ chat_server_update(struct chat_server *server, double timeout)
         }else{
             if(events[i].events & EPOLLIN){
                 struct chat_peer* peer = (struct chat_peer *)events[i].data.ptr;
-                int recieved;
+                int recieved = 0;
                 char buffer[1024];
 
-                if((recieved = recv(peer->socket, buffer , 1024,  MSG_DONTWAIT)) == 0){
+                if((recieved = recv(peer->socket, buffer , 1024,  0)) == 0){
                     epoll_ctl(server->epollStore, EPOLL_CTL_DEL,peer->socket,  &peer->clientEvent);
                     deinitClientServer(peer);
                 }else{
@@ -333,11 +350,13 @@ chat_server_update(struct chat_server *server, double timeout)
 
                             free(peer->inBuf.buffer);
                             peer->inBufInited = 0;
+                            peer->inBuf.bufferSize = 0;
+                            peer->inBuf.cursor = 0;
                             continue;
                         }
 
                         if(buffer[h] == '\0'){
-                            continue;
+                            break;
                         }
 
                         peer->inBuf.buffer[peer->inBuf.cursor++] = buffer[h];
@@ -347,8 +366,8 @@ chat_server_update(struct chat_server *server, double timeout)
                             peer->inBuf.buffer = realloc(peer->inBuf.buffer, peer->inBuf.bufferSize);
                         }
                     }
-                    memset(buffer, '\0', 1024);
                 }
+                memset(buffer, '\0', 1024);
             }
             if(events->events & EPOLLOUT){
                 int sent;

@@ -9,6 +9,8 @@
 #include "stdio.h"
 #include "sys/poll.h"
 #include <ctype.h>
+#include <assert.h>
+#include "fcntl.h"
 
 
 struct Buffer{
@@ -138,11 +140,19 @@ chat_client_connect(struct chat_client *client, const char *addr)
 
     if (connect(sockDesc, result->ai_addr, result->ai_addrlen) == -1) {
         freeaddrinfo(result);
-        close(client->socket);
-        client->socket = -1;
         free(temp_addr);
         return CHAT_ERR_SYS;
     }
+
+    int flagMask = fcntl(sockDesc, F_GETFL, 0);
+    flagMask |= O_NONBLOCK;
+
+    if(fcntl(sockDesc, F_SETFL, flagMask) < 0){
+        freeaddrinfo(result);
+        free(temp_addr);
+        return CHAT_ERR_SYS;
+    }
+
 
     client->socket = sockDesc;
     client->clientPoll.fd = client->socket;
@@ -183,7 +193,7 @@ chat_client_update(struct chat_client *client, double timeout)
     if(copyFd.revents & POLLIN){
         char buffer[1024];
         int recieved;
-        if ((recieved = recv(client->socket, buffer, sizeof (buffer), MSG_DONTWAIT)) < 0){
+        if ((recieved = recv(client->socket, buffer, sizeof (buffer), 0)) < 0){
             return CHAT_ERR_SYS;
         }else{
 
@@ -248,18 +258,18 @@ chat_client_update(struct chat_client *client, double timeout)
         if((sent = send(client->socket, client->inBuffer.buffer, client->inBuffer.bufferSize, 0))  < 0){
             return CHAT_ERR_SYS;
         }else{
-            if(sent < client->inBuffer.bufferSize) {
-                char *newBuf = strdup(client->inBuffer.buffer + sent);
-                free(client->inBuffer.buffer);
-
-                client->inBuffer.buffer = newBuf;
-                client->inBuffer.bufferSize -= sent;
-            }else{
+            if(sent >= client->inBuffer.bufferSize) {
                 free(client->inBuffer.buffer);
                 client->inBuffer.cursor = 0;
                 client->inBuffer.bufferSize = 0;
                 client->InitInBuf = 0;
                 client->clientPoll.events ^= POLLOUT;
+            }else{
+                char *newBuf = strdup(client->inBuffer.buffer + sent);
+                free(client->inBuffer.buffer);
+
+                client->inBuffer.buffer = newBuf;
+                client->inBuffer.bufferSize -= sent;
             }
         }
     }
@@ -313,7 +323,7 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
             uint32_t start = 0;
             for(; isspace(currentMessage[start]) && start < currentSize; ++start);
             int end = (int)currentSize - 1;
-            for(; (currentMessage[end] == '\0' || isspace(currentMessage[end])) && end >= 0; --end);
+            for(; end >= 0 && (currentMessage[end] == '\0' || isspace(currentMessage[end])) ; --end);
             if (end < 0) {
                 return 0;
             }
@@ -322,14 +332,10 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
             char *new_msg = calloc(new_msg_size, sizeof(char));
             strncpy(new_msg, currentMessage + start, end - start + 1);
             new_msg[new_msg_size - 1] = '\n';
-
-            free(currentMessage);
-            currentSize = 0;
-            msgCapacity = 1024;
-            currentMessage = calloc(msgCapacity, sizeof(char));
+            assert(new_msg[new_msg_size] == '\0');
 
             if(!client->InitInBuf){
-                client->inBuffer.buffer = calloc(new_msg_size + 1, sizeof(char));
+                client->inBuffer.buffer = calloc(new_msg_size, sizeof(char));
                 strncpy(client->inBuffer.buffer, new_msg, new_msg_size);
 
                 client->inBuffer.bufferSize = new_msg_size;
@@ -339,10 +345,20 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
                 client->inBuffer.buffer = realloc(client->inBuffer.buffer, (new_msg_size + client->inBuffer.bufferSize)*sizeof(char));
                 client->inBuffer.bufferSize += new_msg_size;
                 strncat(client->inBuffer.buffer, new_msg, new_msg_size);
-                client->inBuffer.bufferSize += new_msg_size;
             }
 
+
             free(new_msg);
+            free(currentMessage);
+            currentMessage = NULL;
+            currentSize = 0;
+            msgCapacity = 1024;
+            currentMessage = calloc(msgCapacity, sizeof(char));
+
+        }
+
+        if(msg[i] == '\0'){
+            break;
         }
     }
 
@@ -352,7 +368,7 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
         uint32_t start = 0;
         for(; isspace(currentMessage[start]) && start < currentSize; ++start);
         int end = (int)currentSize - 1;
-        for(; (currentMessage[end] == '\0' || isspace(currentMessage[end])) && end >= 0; --end);
+        for(; end >= 0 && (currentMessage[end] == '\0' || isspace(currentMessage[end])) ; --end);
         if (end < 0) {
             return 0;
         }
@@ -363,7 +379,7 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
         free(currentMessage);
 
         if(!client->InitInBuf){
-            client->inBuffer.buffer = calloc(new_msg_size + 1, sizeof(char));
+            client->inBuffer.buffer = calloc(new_msg_size, sizeof(char));
             strncpy(client->inBuffer.buffer, new_msg, new_msg_size);
 
             client->inBuffer.bufferSize = new_msg_size;
@@ -373,7 +389,6 @@ chat_client_feed(struct chat_client *client, const char *msg, uint32_t msg_size)
             client->inBuffer.buffer = realloc(client->inBuffer.buffer, (new_msg_size + client->inBuffer.bufferSize)*sizeof(char));
             client->inBuffer.bufferSize += new_msg_size;
             strncat(client->inBuffer.buffer, new_msg, new_msg_size);
-            client->inBuffer.bufferSize += new_msg_size;
         }
         free(new_msg);
     }

@@ -149,9 +149,9 @@ test_big_messages(void)
 	data[len] = '\n';
 	int rc;
 	struct chat_message *msg;
-	int count = 1;
+	int count = 100;
 	int real_count = 0;
-	for (int i = 0; i < 1; ++i) {
+	for (int i = 0; i < 100; ++i) {
 		unit_fail_if(chat_client_feed(c1, data, size) != 0);
 		rc = chat_client_update(c1, 0);
 		unit_fail_if(rc != 0 && rc != CHAT_ERR_TIMEOUT);
